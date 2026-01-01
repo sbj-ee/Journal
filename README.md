@@ -6,6 +6,7 @@ A TUI for a Journal application which uses a sqlite3 database.
 
 - Create, view, edit, and delete journal entries
 - Quick add entries from command line
+- Export entries to markdown for backup
 - Tag entries for organization and filtering
 - Search entries by title or content
 - Filter entries by tag
@@ -53,6 +54,17 @@ python journal.py -a "Title" "Content" -t "work, ideas"
 # Show help
 python journal.py --help
 ```
+
+## Export to Markdown
+
+Export all journal entries to a markdown file for backup or sharing:
+
+```bash
+python journal.py --export journal_backup.md
+python journal.py -e journal_backup.md
+```
+
+The exported file includes each entry's title, date, tags, and content in a readable markdown format.
 
 ## Controls
 
