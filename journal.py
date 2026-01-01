@@ -568,7 +568,7 @@ def display_entries_list(stdscr, entries, current_page, items_per_page, selected
 
 
 def view_single_entry_screen(stdscr, entry_id):
-    """Displays the full content of a single journal entry."""
+    """Displays the full content of a single journal entry with word wrapping."""
     entry = get_entry_db(entry_id)
     stdscr.clear()
     h, w = stdscr.getmaxyx()
@@ -587,6 +587,31 @@ def view_single_entry_screen(stdscr, entry_id):
     content_lines = entry[3].splitlines()
     current_display_line = 3
     scroll_offset = 0 # For scrolling content if it's too long
+    display_width = w - 1
+
+    # Pre-process: wrap lines and track code block state for each display line
+    # Each item: (wrapped_line_text, is_code_block, is_code_fence, original_line_idx)
+    display_lines = []
+    in_code_block = False
+
+    for orig_idx, line in enumerate(content_lines):
+        is_code_fence = line.strip().startswith('```')
+
+        if is_code_fence:
+            in_code_block = not in_code_block
+            display_lines.append((line, False, True, orig_idx))
+        elif in_code_block:
+            # Don't word-wrap code blocks, just truncate or show as-is
+            display_lines.append((line, True, False, orig_idx))
+        elif not line.strip():
+            # Empty line
+            display_lines.append(("", False, False, orig_idx))
+        else:
+            # Word wrap regular text
+            wrapped = wrap_text(line, display_width)
+            for wrap_idx, wrapped_line in enumerate(wrapped):
+                # Only first wrapped segment gets markdown rendering for headers/lists
+                display_lines.append((wrapped_line, False, False, orig_idx))
 
     while True:
         stdscr.move(current_display_line, 0) # Move cursor to start of content area
@@ -595,33 +620,26 @@ def view_single_entry_screen(stdscr, entry_id):
         # Display content with scrolling
         lines_to_display = h - current_display_line - 2 # -2 for bottom message
 
-        # Track if we're inside a code block - check lines before scroll_offset
-        in_code_block = False
-        for pre_idx in range(scroll_offset):
-            if content_lines[pre_idx].strip().startswith('```'):
-                in_code_block = not in_code_block
-
         for i in range(lines_to_display):
-            content_idx = scroll_offset + i
-            if content_idx < len(content_lines):
-                line_to_print = content_lines[content_idx]
+            display_idx = scroll_offset + i
+            if display_idx < len(display_lines):
+                line_text, is_code, is_fence, _ = display_lines[display_idx]
 
-                # Check for code block toggle
-                if line_to_print.strip().startswith('```'):
-                    in_code_block = not in_code_block
-
-                # Render with markdown formatting
-                if in_code_block and not line_to_print.strip().startswith('```'):
+                if is_fence:
+                    # Render code fence marker
+                    render_markdown_line(stdscr, current_display_line + i, 0, line_text, display_width)
+                elif is_code:
                     # Inside code block - use code color without markdown parsing
                     try:
                         stdscr.attron(curses.color_pair(4))
-                        display_text = line_to_print[:w-1] if len(line_to_print) >= w else line_to_print
+                        display_text = line_text[:display_width] if len(line_text) > display_width else line_text
                         stdscr.addstr(current_display_line + i, 0, display_text)
                         stdscr.attroff(curses.color_pair(4))
                     except curses.error:
                         pass
                 else:
-                    render_markdown_line(stdscr, current_display_line + i, 0, line_to_print, w - 1)
+                    # Render with markdown formatting
+                    render_markdown_line(stdscr, current_display_line + i, 0, line_text, display_width)
             else:
                 break # No more content lines
 
@@ -645,7 +663,7 @@ def view_single_entry_screen(stdscr, entry_id):
                 scroll_offset -= 1
         elif key == curses.KEY_DOWN:
             # Only scroll down if there's more content to show
-            if scroll_offset + lines_to_display < len(content_lines):
+            if scroll_offset + lines_to_display < len(display_lines):
                 scroll_offset += 1
     return None
 

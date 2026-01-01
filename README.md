@@ -7,7 +7,7 @@ A TUI for a Journal application which uses a sqlite3 database.
 - Create, view, and delete journal entries
 - Search entries by title or content
 - Paginated entry list
-- Scrollable entry view
+- Scrollable entry view with word wrapping
 - Markdown rendering when viewing entries
 - Word-wrapped text editor
 
