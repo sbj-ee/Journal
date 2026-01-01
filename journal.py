@@ -2,9 +2,12 @@ import sqlite3
 import curses
 import curses.textpad # For multiline input
 import re
+import os
 from datetime import datetime
 
-DATABASE_NAME = 'journal_app.db'
+# Store database in Box folder for cloud sync
+BOX_FOLDER = os.path.expanduser('~/Library/CloudStorage/Box-Box')
+DATABASE_NAME = os.path.join(BOX_FOLDER, 'journal_app.db')
 
 # --- Database Functions ---
 
