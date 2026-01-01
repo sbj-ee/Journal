@@ -4,12 +4,13 @@ A TUI for a Journal application which uses a sqlite3 database.
 
 ## Features
 
-- Create, view, and delete journal entries
+- Create, view, edit, and delete journal entries
 - Search entries by title or content
 - Paginated entry list
 - Scrollable entry view with word wrapping
 - Markdown rendering when viewing entries
 - Word-wrapped text editor
+- Configurable database location with cloud sync support
 
 ## Markdown Support
 
@@ -38,7 +39,26 @@ pip install windows-curses
 - **Navigation**: Arrow keys
 - **Select**: Enter
 - **Quit**: Q
-- **Multi-line input**: Press Escape to save, Ctrl+C to cancel
+- **Edit entry**: E (when viewing an entry)
+- **Delete entry**: D (in entry list)
+- **New entry**: N (in entry list)
+- **Text editor**: Escape to save, Ctrl+C to cancel
+
+## Configuration
+
+The database location is determined in the following order:
+
+1. **Config file** (`~/.journalrc`): Set a custom path
+2. **Box folder**: `~/Library/CloudStorage/Box-Box/journal_app.db` (if Box Drive is installed)
+3. **Current directory**: `./journal_app.db`
+
+To use a custom database path, create `~/.journalrc`:
+
+```
+DATABASE_PATH=~/path/to/journal.db
+```
+
+The current database location is displayed on the main menu.
 
 ## Running Tests
 
