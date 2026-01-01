@@ -3,6 +3,7 @@ import curses
 import curses.textpad # For multiline input
 import re
 import os
+import argparse
 from datetime import datetime
 
 # Configuration: check for config file, then Box folder, then current directory
@@ -1417,16 +1418,44 @@ def main_tui_loop(stdscr):
             pass
 
 
+def quick_add_entry(title, content, tags=None):
+    """Add an entry from command line without TUI."""
+    entry_id = add_entry_db(title, content)
+    if entry_id:
+        if tags:
+            tag_list = [t.strip() for t in tags.split(',') if t.strip()]
+            set_entry_tags(entry_id, tag_list)
+            print(f"Entry added: '{title}' with tags: {', '.join(tag_list)}")
+        else:
+            print(f"Entry added: '{title}'")
+        return True
+    else:
+        print("Failed to add entry.")
+        return False
+
+
 if __name__ == '__main__':
-    init_db() # Ensure database and table exist
-    try:
-        curses.wrapper(main_tui_loop)
-        print("Journal TUI closed normally.")
-    except curses.error as e:
-        print(f"A curses error occurred: {e}")
-        print("If you are on Windows, try installing 'windows-curses': pip install windows-curses")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-    finally:
-        # curses.endwin() is handled by curses.wrapper
-        pass
+    parser = argparse.ArgumentParser(description='Journal TUI - A terminal journal application')
+    parser.add_argument('--add', '-a', nargs=2, metavar=('TITLE', 'CONTENT'),
+                        help='Quick add an entry without opening TUI')
+    parser.add_argument('--tags', '-t', metavar='TAGS',
+                        help='Comma-separated tags for the entry (use with --add)')
+
+    args = parser.parse_args()
+
+    init_db()  # Ensure database and table exist
+
+    if args.add:
+        # Quick add mode
+        title, content = args.add
+        quick_add_entry(title, content, args.tags)
+    else:
+        # Normal TUI mode
+        try:
+            curses.wrapper(main_tui_loop)
+            print("Journal TUI closed normally.")
+        except curses.error as e:
+            print(f"A curses error occurred: {e}")
+            print("If you are on Windows, try installing 'windows-curses': pip install windows-curses")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
