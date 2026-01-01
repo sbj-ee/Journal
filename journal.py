@@ -690,7 +690,7 @@ def display_main_menu(stdscr, selected_option_idx):
         db_path = "..." + db_path[-(w - 11):]
     stdscr.addstr(h - 3, 2, f"DB: {db_path}", curses.A_DIM)
 
-    stdscr.addstr(h - 2, 2, "Use UP/DOWN arrows, ENTER to select. Q to quit from here.")
+    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: Select, Q: Quit, ?: Help")
     stdscr.refresh()
 
 def display_entries_list(stdscr, entries, current_page, items_per_page, selected_idx_on_page):
@@ -1281,6 +1281,64 @@ def tag_entries_loop(stdscr, entries, tag_name):
                 items_per_page = 1
 
 
+def display_help_screen(stdscr):
+    """Display keyboard shortcuts help screen."""
+    stdscr.clear()
+    h, w = stdscr.getmaxyx()
+
+    help_title = "Keyboard Shortcuts"
+    stdscr.addstr(1, (w - len(help_title)) // 2, help_title, curses.A_BOLD | curses.A_UNDERLINE)
+
+    shortcuts = [
+        ("General", [
+            ("↑/↓", "Navigate up/down"),
+            ("←/→", "Previous/next page"),
+            ("Enter", "Select/confirm"),
+            ("B", "Go back"),
+            ("Q", "Quit"),
+            ("?", "Show this help"),
+        ]),
+        ("Main Menu", [
+            ("1-5", "Quick select menu option"),
+        ]),
+        ("Entry List", [
+            ("N", "New entry"),
+            ("D", "Delete selected entry"),
+        ]),
+        ("View Entry", [
+            ("E", "Edit entry"),
+            ("↑/↓", "Scroll content"),
+        ]),
+        ("Text Editor", [
+            ("Esc", "Save and exit"),
+            ("Ctrl+C", "Cancel without saving"),
+            ("←/→/↑/↓", "Move cursor"),
+            ("Home/End", "Start/end of line"),
+        ]),
+        ("Tags", [
+            ("Enter", "Keep existing tags (when editing)"),
+            ("-", "Clear all tags (when editing)"),
+        ]),
+    ]
+
+    line = 3
+    for section_title, section_shortcuts in shortcuts:
+        if line >= h - 3:
+            break
+        stdscr.addstr(line, 2, section_title, curses.A_BOLD | curses.color_pair(3))
+        line += 1
+        for key, description in section_shortcuts:
+            if line >= h - 3:
+                break
+            stdscr.addstr(line, 4, f"{key:12} {description}")
+            line += 1
+        line += 1  # Blank line between sections
+
+    stdscr.addstr(h - 2, 2, "Press any key to return...")
+    stdscr.refresh()
+    stdscr.getch()
+
+
 def confirm_action(stdscr, prompt):
     """Generic confirmation dialog."""
     stdscr.clear() # Clear screen for the prompt
@@ -1345,6 +1403,8 @@ def journal_entries_loop(stdscr):
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit application? (y/N):"):
                 return "QUIT_APP" # Signal to exit the whole app
+        elif key == ord('?'):
+            display_help_screen(stdscr)
         elif (key == curses.KEY_ENTER or key in [10, 13]) and paginated_entries:
             # Make sure there's an entry to select
             if 0 <= selected_idx_on_page < len(paginated_entries):
@@ -1397,6 +1457,8 @@ def main_tui_loop(stdscr):
         elif key == ord('q') or key == ord('Q'):
              if confirm_action(stdscr, "Quit application? (y/N):"):
                 break
+        elif key == ord('?'):
+            display_help_screen(stdscr)
         elif key == curses.KEY_ENTER or key in [10, 13]: # 10 is LF, 13 is CR
             if current_main_menu_option == 0: # View Entries
                 result = journal_entries_loop(stdscr)
