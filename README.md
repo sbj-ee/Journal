@@ -5,7 +5,9 @@ A TUI for a Journal application which uses a sqlite3 database.
 ## Features
 
 - Create, view, edit, and delete journal entries
+- Tag entries for organization and filtering
 - Search entries by title or content
+- Filter entries by tag
 - Paginated entry list
 - Scrollable entry view with word wrapping
 - Markdown rendering when viewing entries
@@ -39,10 +41,23 @@ pip install windows-curses
 - **Navigation**: Arrow keys
 - **Select**: Enter
 - **Quit**: Q
+- **Back**: B
 - **Edit entry**: E (when viewing an entry)
 - **Delete entry**: D (in entry list)
 - **New entry**: N (in entry list)
 - **Text editor**: Escape to save, Ctrl+C to cancel
+
+## Tags
+
+Organize your entries with tags for easy filtering:
+
+- **Adding tags**: After entering content, you'll be prompted to add tags
+- **Format**: Enter tags separated by commas (e.g., `work, ideas, personal`)
+- **Case-insensitive**: Tags are stored in lowercase
+- **Editing tags**: Press E when viewing an entry to edit its tags
+- **Filtering**: Use "Filter by Tag" from the main menu to browse entries by tag
+
+Tags are displayed when viewing an entry and show the entry count in the filter view.
 
 ## Configuration
 
