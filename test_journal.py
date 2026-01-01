@@ -140,6 +140,154 @@ class TestJournalDatabase(unittest.TestCase):
         self.assertIn("Third", titles)
 
 
+class TestTagFunctionality(unittest.TestCase):
+    """Tests for tag database functions."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Set up test database."""
+        journal.DATABASE_NAME = TEST_DB
+
+    def setUp(self):
+        """Initialize fresh database before each test."""
+        if os.path.exists(TEST_DB):
+            os.remove(TEST_DB)
+        journal.init_db()
+
+    def tearDown(self):
+        """Clean up test database after each test."""
+        if os.path.exists(TEST_DB):
+            os.remove(TEST_DB)
+
+    def test_init_db_creates_tag_tables(self):
+        """Test that init_db creates the tags and entry_tags tables."""
+        conn = sqlite3.connect(TEST_DB)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tags'")
+        self.assertIsNotNone(cursor.fetchone())
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='entry_tags'")
+        self.assertIsNotNone(cursor.fetchone())
+
+        conn.close()
+
+    def test_get_or_create_tag_creates_new(self):
+        """Test creating a new tag."""
+        tag_id = journal.get_or_create_tag("work")
+        self.assertIsNotNone(tag_id)
+        self.assertGreater(tag_id, 0)
+
+    def test_get_or_create_tag_returns_existing(self):
+        """Test that get_or_create_tag returns existing tag."""
+        tag_id1 = journal.get_or_create_tag("work")
+        tag_id2 = journal.get_or_create_tag("work")
+        self.assertEqual(tag_id1, tag_id2)
+
+    def test_get_or_create_tag_case_insensitive(self):
+        """Test that tags are case insensitive."""
+        tag_id1 = journal.get_or_create_tag("Work")
+        tag_id2 = journal.get_or_create_tag("WORK")
+        tag_id3 = journal.get_or_create_tag("work")
+        self.assertEqual(tag_id1, tag_id2)
+        self.assertEqual(tag_id2, tag_id3)
+
+    def test_set_entry_tags(self):
+        """Test setting tags on an entry."""
+        entry_id = journal.add_entry_db("Test", "Content")
+        result = journal.set_entry_tags(entry_id, ["work", "ideas"])
+        self.assertTrue(result)
+
+    def test_get_entry_tags(self):
+        """Test getting tags for an entry."""
+        entry_id = journal.add_entry_db("Test", "Content")
+        journal.set_entry_tags(entry_id, ["work", "ideas", "personal"])
+
+        tags = journal.get_entry_tags(entry_id)
+        self.assertEqual(len(tags), 3)
+        self.assertIn("work", tags)
+        self.assertIn("ideas", tags)
+        self.assertIn("personal", tags)
+
+    def test_get_entry_tags_empty(self):
+        """Test getting tags for entry with no tags."""
+        entry_id = journal.add_entry_db("Test", "Content")
+        tags = journal.get_entry_tags(entry_id)
+        self.assertEqual(tags, [])
+
+    def test_set_entry_tags_replaces_existing(self):
+        """Test that setting tags replaces existing tags."""
+        entry_id = journal.add_entry_db("Test", "Content")
+        journal.set_entry_tags(entry_id, ["work", "ideas"])
+        journal.set_entry_tags(entry_id, ["personal"])
+
+        tags = journal.get_entry_tags(entry_id)
+        self.assertEqual(len(tags), 1)
+        self.assertIn("personal", tags)
+        self.assertNotIn("work", tags)
+
+    def test_set_entry_tags_clear(self):
+        """Test clearing tags from an entry."""
+        entry_id = journal.add_entry_db("Test", "Content")
+        journal.set_entry_tags(entry_id, ["work", "ideas"])
+        journal.set_entry_tags(entry_id, [])
+
+        tags = journal.get_entry_tags(entry_id)
+        self.assertEqual(tags, [])
+
+    def test_get_all_tags(self):
+        """Test getting all tags with counts."""
+        entry1 = journal.add_entry_db("Entry 1", "Content")
+        entry2 = journal.add_entry_db("Entry 2", "Content")
+
+        journal.set_entry_tags(entry1, ["work", "ideas"])
+        journal.set_entry_tags(entry2, ["work", "personal"])
+
+        all_tags = journal.get_all_tags()
+        tag_dict = {name: count for name, count in all_tags}
+
+        self.assertEqual(tag_dict["work"], 2)
+        self.assertEqual(tag_dict["ideas"], 1)
+        self.assertEqual(tag_dict["personal"], 1)
+
+    def test_get_all_tags_empty(self):
+        """Test getting all tags when none exist."""
+        all_tags = journal.get_all_tags()
+        self.assertEqual(all_tags, [])
+
+    def test_get_entries_by_tag(self):
+        """Test filtering entries by tag."""
+        entry1 = journal.add_entry_db("Entry 1", "Content")
+        entry2 = journal.add_entry_db("Entry 2", "Content")
+        entry3 = journal.add_entry_db("Entry 3", "Content")
+
+        journal.set_entry_tags(entry1, ["work"])
+        journal.set_entry_tags(entry2, ["work", "ideas"])
+        journal.set_entry_tags(entry3, ["personal"])
+
+        work_entries = journal.get_entries_by_tag("work")
+        self.assertEqual(len(work_entries), 2)
+
+        personal_entries = journal.get_entries_by_tag("personal")
+        self.assertEqual(len(personal_entries), 1)
+
+    def test_get_entries_by_tag_case_insensitive(self):
+        """Test that filtering by tag is case insensitive."""
+        entry_id = journal.add_entry_db("Test", "Content")
+        journal.set_entry_tags(entry_id, ["Work"])
+
+        entries = journal.get_entries_by_tag("WORK")
+        self.assertEqual(len(entries), 1)
+
+    def test_get_entries_by_tag_no_results(self):
+        """Test filtering by non-existent tag."""
+        entry_id = journal.add_entry_db("Test", "Content")
+        journal.set_entry_tags(entry_id, ["work"])
+
+        entries = journal.get_entries_by_tag("nonexistent")
+        self.assertEqual(entries, [])
+
+
 class TestWordWrap(unittest.TestCase):
     """Tests for word wrapping function."""
 
