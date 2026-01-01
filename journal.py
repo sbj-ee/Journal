@@ -5,9 +5,12 @@ import re
 import os
 from datetime import datetime
 
-# Store database in Box folder for cloud sync
+# Store database in Box folder for cloud sync, with fallback to current directory
 BOX_FOLDER = os.path.expanduser('~/Library/CloudStorage/Box-Box')
-DATABASE_NAME = os.path.join(BOX_FOLDER, 'journal_app.db')
+if os.path.isdir(BOX_FOLDER):
+    DATABASE_NAME = os.path.join(BOX_FOLDER, 'journal_app.db')
+else:
+    DATABASE_NAME = 'journal_app.db'
 
 # --- Database Functions ---
 
