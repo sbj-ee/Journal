@@ -5,6 +5,7 @@ A TUI for a Journal application which uses a sqlite3 database.
 ## Features
 
 - Create, view, edit, and delete journal entries
+- Quick add entries from command line
 - Tag entries for organization and filtering
 - Search entries by title or content
 - Filter entries by tag
@@ -34,6 +35,23 @@ python journal.py
 On Windows, install curses support first:
 ```bash
 pip install windows-curses
+```
+
+## Quick Add from CLI
+
+Add entries directly from the command line without opening the TUI:
+
+```bash
+# Add an entry
+python journal.py --add "Title" "Content"
+python journal.py -a "Title" "Content"
+
+# Add an entry with tags
+python journal.py --add "Title" "Content" --tags "work, ideas"
+python journal.py -a "Title" "Content" -t "work, ideas"
+
+# Show help
+python journal.py --help
 ```
 
 ## Controls
