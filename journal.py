@@ -567,6 +567,12 @@ def display_main_menu(stdscr, selected_option_idx):
         else:
             stdscr.addstr(y_pos, x_pos, f"  {option}  ")
 
+    # Show database location
+    db_path = DATABASE_NAME.replace(os.path.expanduser('~'), '~')
+    if len(db_path) > w - 8:
+        db_path = "..." + db_path[-(w - 11):]
+    stdscr.addstr(h - 3, 2, f"DB: {db_path}", curses.A_DIM)
+
     stdscr.addstr(h - 2, 2, "Use UP/DOWN arrows, ENTER to select. Q to quit from here.")
     stdscr.refresh()
 
