@@ -55,7 +55,11 @@ Organize your entries with tags for easy filtering:
 - **Format**: Enter tags separated by commas (e.g., `work, ideas, personal`)
 - **Case-insensitive**: Tags are stored in lowercase
 - **Editing tags**: Press E when viewing an entry to edit its tags
+  - Press Enter to keep existing tags
+  - Enter new tags to replace existing ones
+  - Enter `-` to clear all tags
 - **Filtering**: Use "Filter by Tag" from the main menu to browse entries by tag
+- **Existing tags**: When adding or editing tags, existing tags are shown for reference
 
 Tags are displayed when viewing an entry and show the entry count in the filter view.
 

@@ -160,14 +160,16 @@ def set_entry_tags(entry_id, tag_names):
     try:
         # Remove existing tags
         cursor.execute("DELETE FROM entry_tags WHERE entry_id = ?", (entry_id,))
-        # Add new tags
+        conn.commit()
+
+        # Add new tags (each in its own transaction to avoid lock with get_or_create_tag)
         for tag_name in tag_names:
             tag_name = tag_name.strip().lower()
             if tag_name:
                 tag_id = get_or_create_tag(tag_name)
                 cursor.execute("INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?, ?)",
                              (entry_id, tag_id))
-        conn.commit()
+                conn.commit()
         return True
     except sqlite3.Error:
         return False
