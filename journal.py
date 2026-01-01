@@ -5,12 +5,29 @@ import re
 import os
 from datetime import datetime
 
-# Store database in Box folder for cloud sync, with fallback to current directory
-BOX_FOLDER = os.path.expanduser('~/Library/CloudStorage/Box-Box')
-if os.path.isdir(BOX_FOLDER):
-    DATABASE_NAME = os.path.join(BOX_FOLDER, 'journal_app.db')
-else:
-    DATABASE_NAME = 'journal_app.db'
+# Configuration: check for config file, then Box folder, then current directory
+def get_database_path():
+    """Determine database path from config file, Box folder, or current directory."""
+    config_file = os.path.expanduser('~/.journalrc')
+
+    # Check config file for DATABASE_PATH
+    if os.path.isfile(config_file):
+        with open(config_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('DATABASE_PATH='):
+                    path = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    return os.path.expanduser(path)
+
+    # Fall back to Box folder if available
+    box_folder = os.path.expanduser('~/Library/CloudStorage/Box-Box')
+    if os.path.isdir(box_folder):
+        return os.path.join(box_folder, 'journal_app.db')
+
+    # Fall back to current directory
+    return 'journal_app.db'
+
+DATABASE_NAME = get_database_path()
 
 # --- Database Functions ---
 
