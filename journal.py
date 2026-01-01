@@ -1496,12 +1496,48 @@ def quick_add_entry(title, content, tags=None):
         return False
 
 
+def export_entries_to_markdown(output_file):
+    """Export all entries to a markdown file."""
+    entries = get_all_entries_db()
+
+    if not entries:
+        print("No entries to export.")
+        return False
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("# Journal Entries\n\n")
+        f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+        f.write("---\n\n")
+
+        for entry_summary in entries:
+            entry_id = entry_summary[0]
+            entry = get_entry_db(entry_id)
+            if entry:
+                # entry format: (id, formatted_time, title, content)
+                title = entry[2]
+                date = entry[1]
+                content = entry[3]
+                tags = get_entry_tags(entry_id)
+
+                f.write(f"## {title}\n\n")
+                f.write(f"**Date:** {date}\n\n")
+                if tags:
+                    f.write(f"**Tags:** {', '.join(tags)}\n\n")
+                f.write(f"{content}\n\n")
+                f.write("---\n\n")
+
+    print(f"Exported {len(entries)} entries to '{output_file}'")
+    return True
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Journal TUI - A terminal journal application')
     parser.add_argument('--add', '-a', nargs=2, metavar=('TITLE', 'CONTENT'),
                         help='Quick add an entry without opening TUI')
     parser.add_argument('--tags', '-t', metavar='TAGS',
                         help='Comma-separated tags for the entry (use with --add)')
+    parser.add_argument('--export', '-e', metavar='FILE',
+                        help='Export all entries to a markdown file')
 
     args = parser.parse_args()
 
@@ -1511,6 +1547,9 @@ if __name__ == '__main__':
         # Quick add mode
         title, content = args.add
         quick_add_entry(title, content, args.tags)
+    elif args.export:
+        # Export mode
+        export_entries_to_markdown(args.export)
     else:
         # Normal TUI mode
         try:
