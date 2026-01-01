@@ -711,16 +711,32 @@ def display_entries_list(stdscr, entries, current_page, items_per_page, selected
     line_num = 2
     for i, entry in enumerate(paginated_entries):
         # entry format: (id, formatted_time, title)
+        entry_id = entry[0]
+        tags = get_entry_tags(entry_id)
+        tags_str = f" [{', '.join(tags)}]" if tags else ""
+
         display_text = f"{entry[1]} - {entry[2]}" # Timestamp - Title
-        if len(display_text) > w - 4: # Truncate if too long
-            display_text = display_text[:w-7] + "..."
+        full_text = display_text + tags_str
 
         if i == selected_idx_on_page:
             stdscr.attron(curses.color_pair(1))
-            stdscr.addstr(line_num + i, 2, f"> {display_text}")
+            if len(full_text) > w - 4:
+                # Truncate but try to show some tags
+                stdscr.addstr(line_num + i, 2, f"> {full_text[:w-7]}...")
+            else:
+                stdscr.addstr(line_num + i, 2, f"> {display_text}")
+                if tags_str:
+                    stdscr.addstr(tags_str)
             stdscr.attroff(curses.color_pair(1))
         else:
-            stdscr.addstr(line_num + i, 2, f"  {display_text}")
+            if len(full_text) > w - 4:
+                stdscr.addstr(line_num + i, 2, f"  {full_text[:w-7]}...")
+            else:
+                stdscr.addstr(line_num + i, 2, f"  {display_text}")
+                if tags_str:
+                    stdscr.attron(curses.color_pair(5))
+                    stdscr.addstr(tags_str)
+                    stdscr.attroff(curses.color_pair(5))
 
     # Pagination info
     total_pages = (len(entries) + items_per_page - 1) // items_per_page
