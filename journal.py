@@ -149,21 +149,33 @@ def wrap_text(text, width):
     return lines if lines else [""]
 
 
-def get_multiline_input(stdscr, prompt_message):
+def get_multiline_input(stdscr, prompt_message, title=None):
     """
     Custom multiline text editor with word wrapping.
     Press Escape to save, Ctrl+C to cancel.
     """
     stdscr.clear()
     h, w = stdscr.getmaxyx()
-    stdscr.addstr(0, 0, prompt_message, curses.A_BOLD)
+
+    # Display title at the top if provided
+    current_row = 0
+    if title:
+        title_display = f"Title: {title}"
+        if len(title_display) > w - 1:
+            title_display = title_display[:w - 4] + "..."
+        stdscr.addstr(current_row, 0, title_display, curses.A_BOLD | curses.A_UNDERLINE)
+        current_row += 1
+        stdscr.addstr(current_row, 0, "-" * (w - 1))
+        current_row += 1
+
+    stdscr.addstr(current_row, 0, prompt_message, curses.A_BOLD)
     stdscr.addstr(h - 2, 0, "Press Escape to Save | Ctrl+C to Cancel")
     stdscr.refresh()
 
     # Editor area dimensions
-    edit_y = 2
+    edit_y = current_row + 2
     edit_x = 1
-    edit_h = h - 5
+    edit_h = h - edit_y - 3  # Leave room for border and footer
     edit_w = w - 3
 
     if edit_h <= 0 or edit_w <= 0:
@@ -683,7 +695,7 @@ def add_new_entry_screen(stdscr):
         return
 
     # Get multiline content
-    content = get_multiline_input(stdscr, f"Enter content for '{title}':")
+    content = get_multiline_input(stdscr, "Enter content:", title=title)
 
     if content: # If Ctrl+G was pressed and content is not empty
         if add_entry_db(title, content):
