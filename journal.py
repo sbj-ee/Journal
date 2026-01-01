@@ -71,6 +71,19 @@ def delete_entry_db(entry_id):
     finally:
         conn.close()
 
+def update_entry_db(entry_id, title, content):
+    """Updates an existing journal entry."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE entries SET title = ?, content = ? WHERE id = ?", (title, content, entry_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except sqlite3.Error as e:
+        return False
+    finally:
+        conn.close()
+
 def search_entries_db(search_term):
     """Searches journal entries by title or content."""
     conn = sqlite3.connect(DATABASE_NAME)
@@ -149,7 +162,7 @@ def wrap_text(text, width):
     return lines if lines else [""]
 
 
-def get_multiline_input(stdscr, prompt_message, title=None):
+def get_multiline_input(stdscr, prompt_message, title=None, initial_content=None):
     """
     Custom multiline text editor with word wrapping.
     Press Escape to save, Ctrl+C to cancel.
@@ -192,9 +205,16 @@ def get_multiline_input(stdscr, prompt_message, title=None):
         pass
 
     # Text buffer - list of lines (without word wrapping applied)
-    lines = [""]
-    cursor_line = 0
-    cursor_col = 0
+    if initial_content:
+        lines = initial_content.splitlines()
+        if not lines:
+            lines = [""]
+        cursor_line = len(lines) - 1
+        cursor_col = len(lines[cursor_line])
+    else:
+        lines = [""]
+        cursor_line = 0
+        cursor_col = 0
     scroll_offset = 0
 
     curses.curs_set(1)  # Show cursor
@@ -526,6 +546,11 @@ def display_main_menu(stdscr, selected_option_idx):
 
     stdscr.addstr(1, (w - len(menu_title)) // 2, menu_title, curses.A_BOLD | curses.A_UNDERLINE)
 
+    # Show entry count
+    entry_count = len(get_all_entries_db())
+    count_text = f"{entry_count} entry" if entry_count == 1 else f"{entry_count} entries"
+    stdscr.addstr(3, (w - len(count_text)) // 2, count_text)
+
     for i, option in enumerate(options):
         y_pos = h // 2 - len(options) // 2 + i + 2 # +2 for title and spacing
         x_pos = (w - len(option)) // 2
@@ -655,12 +680,42 @@ def view_single_entry_screen(stdscr, entry_id):
             else:
                 break # No more content lines
 
-        stdscr.addstr(h - 1, 0, "Press B to Back, UP/DOWN to scroll. Q to Quit.")
+        stdscr.addstr(h - 1, 0, "B: Back, E: Edit, UP/DOWN: Scroll, Q: Quit")
         stdscr.refresh()
 
         key = stdscr.getch()
         if key == ord('b') or key == ord('B'):
             break
+        elif key == ord('e') or key == ord('E'):
+            if edit_entry_screen(stdscr, entry_id):
+                # Reload the entry after editing
+                entry = get_entry_db(entry_id)
+                if entry:
+                    title_line = f"Title: {entry[2]} (ID: {entry[0]})"
+                    timestamp_line = f"Date: {entry[1]}"
+                    content_lines = entry[3].splitlines()
+                    # Rebuild display_lines
+                    display_lines = []
+                    in_code_block = False
+                    for orig_idx, line in enumerate(content_lines):
+                        is_code_fence = line.strip().startswith('```')
+                        if is_code_fence:
+                            in_code_block = not in_code_block
+                            display_lines.append((line, False, True, orig_idx))
+                        elif in_code_block:
+                            display_lines.append((line, True, False, orig_idx))
+                        elif not line.strip():
+                            display_lines.append(("", False, False, orig_idx))
+                        else:
+                            wrapped = wrap_text(line, display_width)
+                            for wrap_idx, wrapped_line in enumerate(wrapped):
+                                display_lines.append((wrapped_line, False, False, orig_idx))
+                    scroll_offset = 0
+            # Redraw header after returning from edit
+            stdscr.clear()
+            stdscr.addstr(0, 0, title_line, curses.A_BOLD)
+            stdscr.addstr(1, 0, timestamp_line)
+            stdscr.addstr(2, 0, "-" * (w - 1))
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit to main menu? (y/N):"):
                 return "QUIT_APP" # Special signal
@@ -706,6 +761,45 @@ def add_new_entry_screen(stdscr):
         display_message(stdscr, "Entry not added (cancelled or empty content). Press any key.")
 
     curses.curs_set(0) # Hide cursor
+
+
+def edit_entry_screen(stdscr, entry_id):
+    """Screen for editing an existing journal entry."""
+    entry = get_entry_db(entry_id)
+    if not entry:
+        display_message(stdscr, "Error: Entry not found. Press any key.")
+        return False
+
+    # entry format: (id, formatted_time, title, content)
+    current_title = entry[2]
+    current_content = entry[3]
+
+    stdscr.clear()
+    h, w = stdscr.getmaxyx()
+    curses.curs_set(1)
+
+    stdscr.addstr(1, 2, "Edit Journal Entry", curses.A_BOLD)
+    stdscr.addstr(3, 2, f"Current title: {current_title}")
+    new_title = get_text_input(stdscr, "New title (or Enter to keep): ", 4, 2, max_len=w-10)
+
+    if not new_title:
+        new_title = current_title
+
+    # Get multiline content with existing content pre-populated
+    new_content = get_multiline_input(stdscr, "Edit content:", title=new_title, initial_content=current_content)
+
+    if new_content:
+        if update_entry_db(entry_id, new_title, new_content):
+            display_message(stdscr, "Entry updated successfully! Press any key.")
+            curses.curs_set(0)
+            return True
+        else:
+            display_message(stdscr, "Failed to update entry. Press any key.")
+    else:
+        display_message(stdscr, "Edit cancelled. Press any key.")
+
+    curses.curs_set(0)
+    return False
 
 
 def search_entries_screen(stdscr):
