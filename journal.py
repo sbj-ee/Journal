@@ -1,6 +1,7 @@
 import sqlite3
 import curses
 import curses.textpad # For multiline input
+import re
 from datetime import datetime
 
 DATABASE_NAME = 'journal_app.db'
@@ -70,6 +71,21 @@ def delete_entry_db(entry_id):
     finally:
         conn.close()
 
+def search_entries_db(search_term):
+    """Searches journal entries by title or content."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    search_pattern = f"%{search_term}%"
+    cursor.execute("""
+        SELECT id, strftime('%Y-%m-%d %H:%M', timestamp) AS formatted_time, title
+        FROM entries
+        WHERE title LIKE ? OR content LIKE ?
+        ORDER BY timestamp DESC
+    """, (search_pattern, search_pattern))
+    entries = cursor.fetchall()
+    conn.close()
+    return entries
+
 # --- Curses UI Helper Functions ---
 
 def display_message(stdscr, message, y_offset=None, x_offset=None, clear_first=True, wait_for_key=True):
@@ -102,61 +118,389 @@ def get_text_input(stdscr, prompt, y_offset, x_offset, max_len=60, clear_line_fi
     curses.noecho() # Disable echoing
     return input_str
 
+def wrap_text(text, width):
+    """Wrap text to fit within a given width, breaking at word boundaries."""
+    if width <= 0:
+        return []
+    words = text.split(' ')
+    lines = []
+    current_line = ""
+
+    for word in words:
+        # Handle words longer than width
+        while len(word) > width:
+            if current_line:
+                lines.append(current_line)
+                current_line = ""
+            lines.append(word[:width])
+            word = word[width:]
+
+        if not current_line:
+            current_line = word
+        elif len(current_line) + 1 + len(word) <= width:
+            current_line += " " + word
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    if current_line:
+        lines.append(current_line)
+
+    return lines if lines else [""]
+
+
 def get_multiline_input(stdscr, prompt_message):
     """
-    Gets multiline text input from the user using curses.textpad.Textbox.
-    User presses Ctrl+G to save/finish, Ctrl+X to cancel (though cancel is advisory).
+    Custom multiline text editor with word wrapping.
+    Press Escape to save, Ctrl+C to cancel.
     """
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     stdscr.addstr(0, 0, prompt_message, curses.A_BOLD)
-    stdscr.addstr(h - 2, 0, "Press Ctrl+G to Save, Ctrl+X to Cancel (or finish typing).")
+    stdscr.addstr(h - 2, 0, "Press Escape to Save | Ctrl+C to Cancel")
     stdscr.refresh()
 
-    # Create a new window for the text box
-    # Leave 1 line for prompt, 2 lines for instructions at bottom
-    edit_win_h = h - 3
-    edit_win_w = w - 2
-    edit_win_y = 1
-    edit_win_x = 1
+    # Editor area dimensions
+    edit_y = 2
+    edit_x = 1
+    edit_h = h - 5
+    edit_w = w - 3
 
-    if edit_win_h <= 0 or edit_win_w <= 0: # Screen too small
+    if edit_h <= 0 or edit_w <= 0:
         display_message(stdscr, "Screen too small for text input. Press any key.")
         return ""
 
-    edit_win = curses.newwin(edit_win_h, edit_win_w, edit_win_y, edit_win_x)
-    edit_win.keypad(True) # Enable special keys like backspace
-
-    # Add a border to the editing window for visual clarity (optional)
+    # Draw border
     try:
-        stdscr.attron(curses.color_pair(2)) # Assuming color_pair 2 is defined
-        curses.textpad.rectangle(stdscr, edit_win_y -1 , edit_win_x -1, edit_win_y + edit_win_h, edit_win_x + edit_win_w)
+        stdscr.attron(curses.color_pair(2))
+        curses.textpad.rectangle(stdscr, edit_y - 1, edit_x - 1, edit_y + edit_h, edit_x + edit_w + 1)
         stdscr.attroff(curses.color_pair(2))
         stdscr.refresh()
-    except: # In case colors are not supported or rectangle fails
+    except curses.error:
         pass
 
+    # Text buffer - list of lines (without word wrapping applied)
+    lines = [""]
+    cursor_line = 0
+    cursor_col = 0
+    scroll_offset = 0
 
-    box = curses.textpad.Textbox(edit_win)
+    curses.curs_set(1)  # Show cursor
 
-    # The edit method blocks until a terminator key is pressed.
-    # Common terminators are Ctrl+G (ASCII 7).
-    # We can't directly make Ctrl+X a non-saving terminator without more complex key handling.
-    # The user experience is: type text, Ctrl+G confirms.
-    # If they want to "cancel", they might just hit Ctrl+G with no text, or we'd need a pre-edit confirmation.
-    content = box.edit() # This will gather input until Ctrl+G
+    def get_display_lines():
+        """Convert logical lines to display lines with word wrapping."""
+        display = []
+        line_map = []  # Maps display line index to (logical_line, offset)
+        for i, line in enumerate(lines):
+            if not line:
+                display.append("")
+                line_map.append((i, 0))
+            else:
+                wrapped = wrap_text(line, edit_w)
+                for j, wline in enumerate(wrapped):
+                    display.append(wline)
+                    # Calculate character offset for this wrapped segment
+                    offset = sum(len(wrap_text(line, edit_w)[k]) + (1 if k > 0 else 0) for k in range(j))
+                    line_map.append((i, j))
+        return display, line_map
 
-    # Clean up the content: Textbox might include trailing spaces or newlines from the edit window.
-    # The content from box.edit() often has a trailing newline if Ctrl+G is pressed after typing.
-    # It might also have spaces filling the last line.
-    # A common way to clean is to rstrip() lines and then join.
-    lines = content.split('\n')
-    cleaned_lines = [line.rstrip() for line in lines]
-    # Remove empty lines at the very end that might result from rstrip
-    while cleaned_lines and not cleaned_lines[-1]:
-        cleaned_lines.pop()
-    
-    return "\n".join(cleaned_lines)
+    def get_cursor_display_pos():
+        """Get cursor position in display coordinates."""
+        display_row = 0
+        for i in range(cursor_line):
+            line = lines[i]
+            if not line:
+                display_row += 1
+            else:
+                display_row += len(wrap_text(line, edit_w))
+
+        # Now find position within current line
+        current_line_text = lines[cursor_line]
+        if not current_line_text:
+            return display_row, cursor_col
+
+        wrapped = wrap_text(current_line_text, edit_w)
+        chars_so_far = 0
+        for i, wline in enumerate(wrapped):
+            line_len = len(wline)
+            if chars_so_far + line_len >= cursor_col:
+                col_in_line = cursor_col - chars_so_far
+                return display_row + i, col_in_line
+            chars_so_far += line_len + 1  # +1 for space that was replaced
+
+        # Cursor at end
+        return display_row + len(wrapped) - 1, len(wrapped[-1]) if wrapped else 0
+
+    def redraw():
+        """Redraw the editor content."""
+        nonlocal scroll_offset
+        display_lines, _ = get_display_lines()
+
+        # Clear editor area
+        for i in range(edit_h):
+            try:
+                stdscr.addstr(edit_y + i, edit_x, " " * edit_w)
+            except curses.error:
+                pass
+
+        # Draw visible lines
+        for i in range(edit_h):
+            line_idx = scroll_offset + i
+            if line_idx < len(display_lines):
+                try:
+                    stdscr.addstr(edit_y + i, edit_x, display_lines[line_idx][:edit_w])
+                except curses.error:
+                    pass
+
+        # Position cursor
+        cursor_display_row, cursor_display_col = get_cursor_display_pos()
+        cursor_screen_row = cursor_display_row - scroll_offset
+
+        # Adjust scroll if cursor is out of view
+        if cursor_screen_row < 0:
+            scroll_offset = cursor_display_row
+            redraw()
+            return
+        elif cursor_screen_row >= edit_h:
+            scroll_offset = cursor_display_row - edit_h + 1
+            redraw()
+            return
+
+        try:
+            stdscr.move(edit_y + cursor_screen_row, edit_x + cursor_display_col)
+        except curses.error:
+            pass
+
+        stdscr.refresh()
+
+    redraw()
+
+    while True:
+        try:
+            key = stdscr.getch()
+        except KeyboardInterrupt:
+            curses.curs_set(0)
+            return ""
+
+        if key == 27:  # Escape - save and exit
+            curses.curs_set(0)
+            return "\n".join(lines)
+
+        elif key == 3:  # Ctrl+C - cancel
+            curses.curs_set(0)
+            return ""
+
+        elif key in (curses.KEY_BACKSPACE, 127, 8):  # Backspace
+            if cursor_col > 0:
+                lines[cursor_line] = lines[cursor_line][:cursor_col-1] + lines[cursor_line][cursor_col:]
+                cursor_col -= 1
+            elif cursor_line > 0:
+                # Join with previous line
+                cursor_col = len(lines[cursor_line - 1])
+                lines[cursor_line - 1] += lines[cursor_line]
+                lines.pop(cursor_line)
+                cursor_line -= 1
+
+        elif key in (curses.KEY_DC, 330):  # Delete key
+            if cursor_col < len(lines[cursor_line]):
+                lines[cursor_line] = lines[cursor_line][:cursor_col] + lines[cursor_line][cursor_col+1:]
+            elif cursor_line < len(lines) - 1:
+                # Join with next line
+                lines[cursor_line] += lines[cursor_line + 1]
+                lines.pop(cursor_line + 1)
+
+        elif key in (curses.KEY_ENTER, 10, 13):  # Enter
+            # Split line at cursor
+            new_line = lines[cursor_line][cursor_col:]
+            lines[cursor_line] = lines[cursor_line][:cursor_col]
+            lines.insert(cursor_line + 1, new_line)
+            cursor_line += 1
+            cursor_col = 0
+
+        elif key == curses.KEY_LEFT:
+            if cursor_col > 0:
+                cursor_col -= 1
+            elif cursor_line > 0:
+                cursor_line -= 1
+                cursor_col = len(lines[cursor_line])
+
+        elif key == curses.KEY_RIGHT:
+            if cursor_col < len(lines[cursor_line]):
+                cursor_col += 1
+            elif cursor_line < len(lines) - 1:
+                cursor_line += 1
+                cursor_col = 0
+
+        elif key == curses.KEY_UP:
+            if cursor_line > 0:
+                cursor_line -= 1
+                cursor_col = min(cursor_col, len(lines[cursor_line]))
+
+        elif key == curses.KEY_DOWN:
+            if cursor_line < len(lines) - 1:
+                cursor_line += 1
+                cursor_col = min(cursor_col, len(lines[cursor_line]))
+
+        elif key == curses.KEY_HOME:
+            cursor_col = 0
+
+        elif key == curses.KEY_END:
+            cursor_col = len(lines[cursor_line])
+
+        elif 32 <= key <= 126:  # Printable ASCII
+            lines[cursor_line] = lines[cursor_line][:cursor_col] + chr(key) + lines[cursor_line][cursor_col:]
+            cursor_col += 1
+
+        elif key == 9:  # Tab - insert spaces
+            spaces = "    "
+            lines[cursor_line] = lines[cursor_line][:cursor_col] + spaces + lines[cursor_line][cursor_col:]
+            cursor_col += len(spaces)
+
+        redraw()
+
+
+# --- Markdown Rendering ---
+
+def render_markdown_line(stdscr, y, x, line, max_width):
+    """
+    Renders a single line with markdown formatting.
+    Returns the number of lines consumed (for wrapped content).
+    Supports: headers (#), bold (**), italic (*), inline code (`), lists (- * 1.)
+    """
+    if y >= curses.LINES - 2:
+        return 0
+
+    # Check for headers
+    header_match = re.match(r'^(#{1,6})\s+(.*)$', line)
+    if header_match:
+        level = len(header_match.group(1))
+        text = header_match.group(2)
+        prefix = "═" * (4 - min(level, 3)) + " "
+        try:
+            stdscr.attron(curses.color_pair(3) | curses.A_BOLD)
+            display_text = prefix + text
+            if len(display_text) > max_width:
+                display_text = display_text[:max_width-3] + "..."
+            stdscr.addstr(y, x, display_text)
+            stdscr.attroff(curses.color_pair(3) | curses.A_BOLD)
+        except curses.error:
+            pass
+        return 1
+
+    # Check for list items
+    list_match = re.match(r'^(\s*)([-*]|\d+\.)\s+(.*)$', line)
+    if list_match:
+        indent = list_match.group(1)
+        marker = list_match.group(2)
+        text = list_match.group(3)
+        try:
+            stdscr.addstr(y, x, indent)
+            stdscr.attron(curses.color_pair(5) | curses.A_BOLD)
+            if marker in ['-', '*']:
+                stdscr.addstr("• ")
+            else:
+                stdscr.addstr(marker + " ")
+            stdscr.attroff(curses.color_pair(5) | curses.A_BOLD)
+            render_inline_markdown(stdscr, y, x + len(indent) + len(marker) + 2, text, max_width - len(indent) - len(marker) - 2)
+        except curses.error:
+            pass
+        return 1
+
+    # Check for code block marker
+    if line.strip().startswith('```'):
+        try:
+            stdscr.attron(curses.color_pair(4))
+            stdscr.addstr(y, x, "─" * min(max_width, 40))
+            stdscr.attroff(curses.color_pair(4))
+        except curses.error:
+            pass
+        return 1
+
+    # Regular line - render with inline formatting
+    render_inline_markdown(stdscr, y, x, line, max_width)
+    return 1
+
+
+def render_inline_markdown(stdscr, y, x, text, max_width):
+    """
+    Renders inline markdown formatting: bold (**), italic (*), inline code (`).
+    """
+    if not text or x >= curses.COLS - 1:
+        return
+
+    # Pattern to match markdown inline elements
+    # Order matters: check bold (**) before italic (*)
+    pattern = r'(\*\*(.+?)\*\*)|(`(.+?)`)|(\*(.+?)\*)|(_(.+?)_)'
+
+    pos = 0
+    current_x = x
+
+    for match in re.finditer(pattern, text):
+        # Print text before the match
+        before_text = text[pos:match.start()]
+        if before_text and current_x < x + max_width:
+            try:
+                display_text = before_text[:max(0, x + max_width - current_x)]
+                stdscr.addstr(y, current_x, display_text)
+                current_x += len(display_text)
+            except curses.error:
+                pass
+
+        if current_x >= x + max_width:
+            return
+
+        # Determine which group matched and apply formatting
+        if match.group(2):  # Bold **text**
+            content = match.group(2)
+            try:
+                stdscr.attron(curses.A_BOLD)
+                display_text = content[:max(0, x + max_width - current_x)]
+                stdscr.addstr(y, current_x, display_text)
+                stdscr.attroff(curses.A_BOLD)
+                current_x += len(display_text)
+            except curses.error:
+                pass
+        elif match.group(4):  # Inline code `text`
+            content = match.group(4)
+            try:
+                stdscr.attron(curses.color_pair(4))
+                display_text = content[:max(0, x + max_width - current_x)]
+                stdscr.addstr(y, current_x, display_text)
+                stdscr.attroff(curses.color_pair(4))
+                current_x += len(display_text)
+            except curses.error:
+                pass
+        elif match.group(6):  # Italic *text*
+            content = match.group(6)
+            try:
+                stdscr.attron(curses.A_DIM)
+                display_text = content[:max(0, x + max_width - current_x)]
+                stdscr.addstr(y, current_x, display_text)
+                stdscr.attroff(curses.A_DIM)
+                current_x += len(display_text)
+            except curses.error:
+                pass
+        elif match.group(8):  # Italic _text_
+            content = match.group(8)
+            try:
+                stdscr.attron(curses.A_DIM)
+                display_text = content[:max(0, x + max_width - current_x)]
+                stdscr.addstr(y, current_x, display_text)
+                stdscr.attroff(curses.A_DIM)
+                current_x += len(display_text)
+            except curses.error:
+                pass
+
+        pos = match.end()
+
+    # Print remaining text after last match
+    remaining = text[pos:]
+    if remaining and current_x < x + max_width:
+        try:
+            display_text = remaining[:max(0, x + max_width - current_x)]
+            stdscr.addstr(y, current_x, display_text)
+        except curses.error:
+            pass
 
 
 # --- UI Screens ---
@@ -166,7 +510,7 @@ def display_main_menu(stdscr, selected_option_idx):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     menu_title = "Python Journal TUI"
-    options = ["View Entries", "Add New Entry", "Exit"]
+    options = ["View Entries", "Add New Entry", "Search Entries", "Exit"]
 
     stdscr.addstr(1, (w - len(menu_title)) // 2, menu_title, curses.A_BOLD | curses.A_UNDERLINE)
 
@@ -250,20 +594,34 @@ def view_single_entry_screen(stdscr, entry_id):
 
         # Display content with scrolling
         lines_to_display = h - current_display_line - 2 # -2 for bottom message
-        
+
+        # Track if we're inside a code block - check lines before scroll_offset
+        in_code_block = False
+        for pre_idx in range(scroll_offset):
+            if content_lines[pre_idx].strip().startswith('```'):
+                in_code_block = not in_code_block
+
         for i in range(lines_to_display):
             content_idx = scroll_offset + i
             if content_idx < len(content_lines):
                 line_to_print = content_lines[content_idx]
-                # Basic word wrapping
-                if len(line_to_print) >= w:
-                    # Split line if it exceeds width
-                    for chunk_start in range(0, len(line_to_print), w-1):
-                        if current_display_line + i + (chunk_start // (w-1)) < h -2:
-                             stdscr.addstr(current_display_line + i + (chunk_start // (w-1)), 0, line_to_print[chunk_start:chunk_start+w-1])
-                        else: break # Stop if we run out of screen space for wrapped lines
+
+                # Check for code block toggle
+                if line_to_print.strip().startswith('```'):
+                    in_code_block = not in_code_block
+
+                # Render with markdown formatting
+                if in_code_block and not line_to_print.strip().startswith('```'):
+                    # Inside code block - use code color without markdown parsing
+                    try:
+                        stdscr.attron(curses.color_pair(4))
+                        display_text = line_to_print[:w-1] if len(line_to_print) >= w else line_to_print
+                        stdscr.addstr(current_display_line + i, 0, display_text)
+                        stdscr.attroff(curses.color_pair(4))
+                    except curses.error:
+                        pass
                 else:
-                    stdscr.addstr(current_display_line + i, 0, line_to_print)
+                    render_markdown_line(stdscr, current_display_line + i, 0, line_to_print, w - 1)
             else:
                 break # No more content lines
 
@@ -318,6 +676,114 @@ def add_new_entry_screen(stdscr):
         display_message(stdscr, "Entry not added (cancelled or empty content). Press any key.")
 
     curses.curs_set(0) # Hide cursor
+
+
+def search_entries_screen(stdscr):
+    """Screen for searching journal entries."""
+    stdscr.clear()
+    h, w = stdscr.getmaxyx()
+    curses.curs_set(1)
+
+    stdscr.addstr(1, 2, "Search Entries", curses.A_BOLD)
+    search_term = get_text_input(stdscr, "Search: ", 3, 2, max_len=w-10)
+
+    curses.curs_set(0)
+
+    if not search_term:
+        display_message(stdscr, "No search term entered. Press any key.")
+        return None
+
+    results = search_entries_db(search_term)
+    if not results:
+        display_message(stdscr, f"No entries found for '{search_term}'. Press any key.")
+        return None
+
+    return search_results_loop(stdscr, results, search_term)
+
+
+def search_results_loop(stdscr, results, search_term):
+    """Manages display and interaction with search results."""
+    current_page = 0
+    items_per_page = curses.LINES - 6
+    if items_per_page <= 0:
+        items_per_page = 1
+    selected_idx_on_page = 0
+
+    while True:
+        total_entries = len(results)
+        total_pages = (total_entries + items_per_page - 1) // items_per_page
+        if total_pages == 0:
+            total_pages = 1
+        current_page = max(0, min(current_page, total_pages - 1))
+
+        entries_on_this_page_count = len(results[current_page * items_per_page : (current_page + 1) * items_per_page])
+        selected_idx_on_page = max(0, min(selected_idx_on_page, entries_on_this_page_count - 1 if entries_on_this_page_count > 0 else 0))
+
+        paginated_entries = display_search_results(stdscr, results, search_term, current_page, items_per_page, selected_idx_on_page)
+        key = stdscr.getch()
+
+        if key == curses.KEY_UP:
+            selected_idx_on_page = max(0, selected_idx_on_page - 1)
+        elif key == curses.KEY_DOWN:
+            if entries_on_this_page_count > 0:
+                selected_idx_on_page = min(entries_on_this_page_count - 1, selected_idx_on_page + 1)
+        elif key == curses.KEY_LEFT:
+            if current_page > 0:
+                current_page -= 1
+                selected_idx_on_page = 0
+        elif key == curses.KEY_RIGHT:
+            if current_page < total_pages - 1:
+                current_page += 1
+                selected_idx_on_page = 0
+        elif key == ord('b') or key == ord('B'):
+            return None
+        elif key == ord('q') or key == ord('Q'):
+            if confirm_action(stdscr, "Quit application? (y/N):"):
+                return "QUIT_APP"
+        elif (key == curses.KEY_ENTER or key in [10, 13]) and paginated_entries:
+            if 0 <= selected_idx_on_page < len(paginated_entries):
+                entry_id_to_view = paginated_entries[selected_idx_on_page][0]
+                result = view_single_entry_screen(stdscr, entry_id_to_view)
+                if result == "QUIT_APP":
+                    return "QUIT_APP"
+        elif key == curses.KEY_RESIZE:
+            items_per_page = curses.LINES - 6
+            if items_per_page <= 0:
+                items_per_page = 1
+
+
+def display_search_results(stdscr, entries, search_term, current_page, items_per_page, selected_idx_on_page):
+    """Displays search results with pagination."""
+    stdscr.clear()
+    h, w = stdscr.getmaxyx()
+    stdscr.addstr(0, 0, f"Search Results for '{search_term}' ({len(entries)} found)", curses.A_BOLD)
+    stdscr.addstr(1, 0, "-" * (w - 1))
+
+    start_index = current_page * items_per_page
+    end_index = start_index + items_per_page
+    paginated_entries = entries[start_index:end_index]
+
+    line_num = 2
+    for i, entry in enumerate(paginated_entries):
+        display_text = f"{entry[1]} - {entry[2]}"
+        if len(display_text) > w - 4:
+            display_text = display_text[:w - 7] + "..."
+
+        if i == selected_idx_on_page:
+            stdscr.attron(curses.color_pair(1))
+            stdscr.addstr(line_num + i, 2, f"> {display_text}")
+            stdscr.attroff(curses.color_pair(1))
+        else:
+            stdscr.addstr(line_num + i, 2, f"  {display_text}")
+
+    total_pages = (len(entries) + items_per_page - 1) // items_per_page
+    if total_pages == 0:
+        total_pages = 1
+    page_info = f"Page {current_page + 1}/{total_pages}"
+    stdscr.addstr(h - 3, 2, page_info)
+    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, B: Back, LEFT/RIGHT: Pages")
+    stdscr.refresh()
+    return paginated_entries
 
 
 def confirm_action(stdscr, prompt):
@@ -418,9 +884,12 @@ def main_tui_loop(stdscr):
     curses.start_color()
     curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE) # For selected items (black on white)
     curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK) # For borders or other elements
+    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK) # For headers
+    curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK) # For code/inline code
+    curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # For list markers
 
     current_main_menu_option = 0
-    main_menu_options_count = 3 # "View Entries", "Add New Entry", "Exit"
+    main_menu_options_count = 4 # "View Entries", "Add New Entry", "Search Entries", "Exit"
 
     while True:
         display_main_menu(stdscr, current_main_menu_option)
@@ -439,7 +908,10 @@ def main_tui_loop(stdscr):
                 if result == "QUIT_APP": break
             elif current_main_menu_option == 1: # Add New Entry
                 add_new_entry_screen(stdscr)
-            elif current_main_menu_option == 2: # Exit
+            elif current_main_menu_option == 2: # Search Entries
+                result = search_entries_screen(stdscr)
+                if result == "QUIT_APP": break
+            elif current_main_menu_option == 3: # Exit
                 if confirm_action(stdscr, "Are you sure you want to exit? (y/N):"):
                     break
         elif key == curses.KEY_RESIZE:
