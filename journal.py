@@ -891,9 +891,25 @@ def add_new_entry_screen(stdscr):
         if entry_id:
             # Ask for tags
             stdscr.clear()
+            h, w = stdscr.getmaxyx()
             stdscr.addstr(1, 2, "Add Tags (optional)", curses.A_BOLD)
             stdscr.addstr(3, 2, "Enter tags separated by commas (e.g., work, personal, ideas)")
-            tags_input = get_text_input(stdscr, "Tags: ", 5, 2, max_len=w-10)
+
+            # Show existing tags
+            existing_tags = get_all_tags()
+            if existing_tags:
+                tag_names = [t[0] for t in existing_tags]
+                existing_str = ", ".join(tag_names)
+                stdscr.addstr(5, 2, "Existing tags:", curses.A_DIM)
+                # Word wrap if too long
+                max_tag_width = w - 4
+                if len(existing_str) > max_tag_width:
+                    existing_str = existing_str[:max_tag_width - 3] + "..."
+                stdscr.addstr(6, 2, existing_str, curses.color_pair(5))
+                tags_input = get_text_input(stdscr, "Tags: ", 8, 2, max_len=w-10)
+            else:
+                tags_input = get_text_input(stdscr, "Tags: ", 5, 2, max_len=w-10)
+
             if tags_input:
                 tag_list = [t.strip() for t in tags_input.split(',') if t.strip()]
                 set_entry_tags(entry_id, tag_list)
@@ -936,17 +952,32 @@ def edit_entry_screen(stdscr, entry_id):
         if update_entry_db(entry_id, new_title, new_content):
             # Ask for tags
             stdscr.clear()
+            h, w = stdscr.getmaxyx()
             stdscr.addstr(1, 2, "Edit Tags", curses.A_BOLD)
             current_tags_str = ", ".join(current_tags) if current_tags else ""
             stdscr.addstr(3, 2, f"Current tags: {current_tags_str if current_tags_str else '(none)'}")
-            stdscr.addstr(4, 2, "Enter tags separated by commas (leave empty to clear)")
-            tags_input = get_text_input(stdscr, "Tags: ", 6, 2, max_len=w-10)
+            stdscr.addstr(4, 2, "Enter new tags, or press Enter to keep current (use - to clear)")
+
+            # Show all existing tags
+            existing_tags = get_all_tags()
+            if existing_tags:
+                tag_names = [t[0] for t in existing_tags]
+                existing_str = ", ".join(tag_names)
+                stdscr.addstr(6, 2, "All tags:", curses.A_DIM)
+                max_tag_width = w - 4
+                if len(existing_str) > max_tag_width:
+                    existing_str = existing_str[:max_tag_width - 3] + "..."
+                stdscr.addstr(7, 2, existing_str, curses.color_pair(5))
+                tags_input = get_text_input(stdscr, "Tags: ", 9, 2, max_len=w-10)
+            else:
+                tags_input = get_text_input(stdscr, "Tags: ", 6, 2, max_len=w-10)
             if tags_input is not None:
-                if tags_input:
+                if tags_input == "-":
+                    set_entry_tags(entry_id, [])  # Clear tags if user enters -
+                elif tags_input:
                     tag_list = [t.strip() for t in tags_input.split(',') if t.strip()]
                     set_entry_tags(entry_id, tag_list)
-                else:
-                    set_entry_tags(entry_id, [])  # Clear tags if empty input
+                # If empty, keep existing tags (do nothing)
             display_message(stdscr, "Entry updated successfully! Press any key.")
             curses.curs_set(0)
             return True
