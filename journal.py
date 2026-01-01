@@ -32,7 +32,7 @@ DATABASE_NAME = get_database_path()
 # --- Database Functions ---
 
 def init_db():
-    """Initializes the database and creates the 'entries' table if it doesn't exist."""
+    """Initializes the database and creates tables if they don't exist."""
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     cursor.execute('''
@@ -43,21 +43,34 @@ def init_db():
             content TEXT NOT NULL
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS entry_tags (
+            entry_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            PRIMARY KEY (entry_id, tag_id),
+            FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )
+    ''')
     conn.commit()
     conn.close()
 
 def add_entry_db(title, content):
-    """Adds a new journal entry to the database."""
+    """Adds a new journal entry to the database. Returns entry_id on success, None on failure."""
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     try:
         cursor.execute("INSERT INTO entries (title, content) VALUES (?, ?)", (title, content))
         conn.commit()
-        return True # Indicate success
+        return cursor.lastrowid
     except sqlite3.Error as e:
-        # In a real app, you might log this error
-        # For the TUI, we might show a message if possible
-        return False # Indicate failure
+        return None
     finally:
         conn.close()
 
@@ -118,6 +131,90 @@ def search_entries_db(search_term):
         WHERE title LIKE ? OR content LIKE ?
         ORDER BY timestamp DESC
     """, (search_pattern, search_pattern))
+    entries = cursor.fetchall()
+    conn.close()
+    return entries
+
+# --- Tag Database Functions ---
+
+def get_or_create_tag(tag_name):
+    """Gets a tag by name or creates it if it doesn't exist. Returns tag_id."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    tag_name = tag_name.strip().lower()
+    try:
+        cursor.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        cursor.execute("INSERT INTO tags (name) VALUES (?)", (tag_name,))
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+def set_entry_tags(entry_id, tag_names):
+    """Sets tags for an entry (replaces existing tags)."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    try:
+        # Remove existing tags
+        cursor.execute("DELETE FROM entry_tags WHERE entry_id = ?", (entry_id,))
+        # Add new tags
+        for tag_name in tag_names:
+            tag_name = tag_name.strip().lower()
+            if tag_name:
+                tag_id = get_or_create_tag(tag_name)
+                cursor.execute("INSERT OR IGNORE INTO entry_tags (entry_id, tag_id) VALUES (?, ?)",
+                             (entry_id, tag_id))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+def get_entry_tags(entry_id):
+    """Gets all tags for an entry."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.name FROM tags t
+        JOIN entry_tags et ON t.id = et.tag_id
+        WHERE et.entry_id = ?
+        ORDER BY t.name
+    """, (entry_id,))
+    tags = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return tags
+
+def get_all_tags():
+    """Gets all tags with their entry counts."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.name, COUNT(et.entry_id) as count
+        FROM tags t
+        LEFT JOIN entry_tags et ON t.id = et.tag_id
+        GROUP BY t.id
+        ORDER BY t.name
+    """)
+    tags = cursor.fetchall()
+    conn.close()
+    return tags
+
+def get_entries_by_tag(tag_name):
+    """Gets all entries with a specific tag."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT e.id, strftime('%Y-%m-%d %H:%M', e.timestamp) AS formatted_time, e.title
+        FROM entries e
+        JOIN entry_tags et ON e.id = et.entry_id
+        JOIN tags t ON et.tag_id = t.id
+        WHERE t.name = ?
+        ORDER BY e.timestamp DESC
+    """, (tag_name.lower(),))
     entries = cursor.fetchall()
     conn.close()
     return entries
@@ -565,7 +662,7 @@ def display_main_menu(stdscr, selected_option_idx):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
     menu_title = "Python Journal TUI"
-    options = ["View Entries", "Add New Entry", "Search Entries", "Exit"]
+    options = ["View Entries", "Add New Entry", "Search Entries", "Filter by Tag", "Exit"]
 
     stdscr.addstr(1, (w - len(menu_title)) // 2, menu_title, curses.A_BOLD | curses.A_UNDERLINE)
 
@@ -646,12 +743,16 @@ def view_single_entry_screen(stdscr, entry_id):
     # entry format: (id, formatted_time, title, content)
     title_line = f"Title: {entry[2]} (ID: {entry[0]})"
     timestamp_line = f"Date: {entry[1]}"
+    tags = get_entry_tags(entry_id)
+    tags_line = f"Tags: {', '.join(tags)}" if tags else "Tags: (none)"
+
     stdscr.addstr(0, 0, title_line, curses.A_BOLD)
     stdscr.addstr(1, 0, timestamp_line)
-    stdscr.addstr(2, 0, "-" * (w - 1))
+    stdscr.addstr(2, 0, tags_line, curses.color_pair(5))
+    stdscr.addstr(3, 0, "-" * (w - 1))
 
     content_lines = entry[3].splitlines()
-    current_display_line = 3
+    current_display_line = 4
     scroll_offset = 0 # For scrolling content if it's too long
     display_width = w - 1
 
@@ -722,6 +823,8 @@ def view_single_entry_screen(stdscr, entry_id):
                 if entry:
                     title_line = f"Title: {entry[2]} (ID: {entry[0]})"
                     timestamp_line = f"Date: {entry[1]}"
+                    tags = get_entry_tags(entry_id)
+                    tags_line = f"Tags: {', '.join(tags)}" if tags else "Tags: (none)"
                     content_lines = entry[3].splitlines()
                     # Rebuild display_lines
                     display_lines = []
@@ -744,7 +847,8 @@ def view_single_entry_screen(stdscr, entry_id):
             stdscr.clear()
             stdscr.addstr(0, 0, title_line, curses.A_BOLD)
             stdscr.addstr(1, 0, timestamp_line)
-            stdscr.addstr(2, 0, "-" * (w - 1))
+            stdscr.addstr(2, 0, tags_line, curses.color_pair(5))
+            stdscr.addstr(3, 0, "-" * (w - 1))
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit to main menu? (y/N):"):
                 return "QUIT_APP" # Special signal
@@ -752,7 +856,8 @@ def view_single_entry_screen(stdscr, entry_id):
                 stdscr.clear()
                 stdscr.addstr(0, 0, title_line, curses.A_BOLD)
                 stdscr.addstr(1, 0, timestamp_line)
-                stdscr.addstr(2, 0, "-" * (w - 1))
+                stdscr.addstr(2, 0, tags_line, curses.color_pair(5))
+                stdscr.addstr(3, 0, "-" * (w - 1))
                 # No need to redraw content here, loop will do it
         elif key == curses.KEY_UP:
             if scroll_offset > 0:
@@ -781,8 +886,17 @@ def add_new_entry_screen(stdscr):
     # Get multiline content
     content = get_multiline_input(stdscr, "Enter content:", title=title)
 
-    if content: # If Ctrl+G was pressed and content is not empty
-        if add_entry_db(title, content):
+    if content: # If Escape was pressed and content is not empty
+        entry_id = add_entry_db(title, content)
+        if entry_id:
+            # Ask for tags
+            stdscr.clear()
+            stdscr.addstr(1, 2, "Add Tags (optional)", curses.A_BOLD)
+            stdscr.addstr(3, 2, "Enter tags separated by commas (e.g., work, personal, ideas)")
+            tags_input = get_text_input(stdscr, "Tags: ", 5, 2, max_len=w-10)
+            if tags_input:
+                tag_list = [t.strip() for t in tags_input.split(',') if t.strip()]
+                set_entry_tags(entry_id, tag_list)
             display_message(stdscr, "Entry added successfully! Press any key.")
         else:
             display_message(stdscr, "Failed to add entry to database. Press any key.")
@@ -802,6 +916,7 @@ def edit_entry_screen(stdscr, entry_id):
     # entry format: (id, formatted_time, title, content)
     current_title = entry[2]
     current_content = entry[3]
+    current_tags = get_entry_tags(entry_id)
 
     stdscr.clear()
     h, w = stdscr.getmaxyx()
@@ -819,6 +934,19 @@ def edit_entry_screen(stdscr, entry_id):
 
     if new_content:
         if update_entry_db(entry_id, new_title, new_content):
+            # Ask for tags
+            stdscr.clear()
+            stdscr.addstr(1, 2, "Edit Tags", curses.A_BOLD)
+            current_tags_str = ", ".join(current_tags) if current_tags else ""
+            stdscr.addstr(3, 2, f"Current tags: {current_tags_str if current_tags_str else '(none)'}")
+            stdscr.addstr(4, 2, "Enter tags separated by commas (leave empty to clear)")
+            tags_input = get_text_input(stdscr, "Tags: ", 6, 2, max_len=w-10)
+            if tags_input is not None:
+                if tags_input:
+                    tag_list = [t.strip() for t in tags_input.split(',') if t.strip()]
+                    set_entry_tags(entry_id, tag_list)
+                else:
+                    set_entry_tags(entry_id, [])  # Clear tags if empty input
             display_message(stdscr, "Entry updated successfully! Press any key.")
             curses.curs_set(0)
             return True
@@ -939,6 +1067,170 @@ def display_search_results(stdscr, entries, search_term, current_page, items_per
     return paginated_entries
 
 
+def filter_by_tag_screen(stdscr):
+    """Screen for filtering entries by tag."""
+    all_tags = get_all_tags()
+
+    if not all_tags:
+        display_message(stdscr, "No tags found. Add tags to entries first. Press any key.")
+        return None
+
+    current_page = 0
+    items_per_page = curses.LINES - 6
+    if items_per_page <= 0:
+        items_per_page = 1
+    selected_idx_on_page = 0
+
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+        stdscr.addstr(0, 0, f"Filter by Tag ({len(all_tags)} tags)", curses.A_BOLD)
+        stdscr.addstr(1, 0, "-" * (w - 1))
+
+        total_tags = len(all_tags)
+        total_pages = (total_tags + items_per_page - 1) // items_per_page
+        if total_pages == 0:
+            total_pages = 1
+        current_page = max(0, min(current_page, total_pages - 1))
+
+        start_index = current_page * items_per_page
+        end_index = start_index + items_per_page
+        paginated_tags = all_tags[start_index:end_index]
+
+        tags_on_this_page_count = len(paginated_tags)
+        selected_idx_on_page = max(0, min(selected_idx_on_page, tags_on_this_page_count - 1 if tags_on_this_page_count > 0 else 0))
+
+        line_num = 2
+        for i, (tag_name, count) in enumerate(paginated_tags):
+            display_text = f"{tag_name} ({count} entries)"
+            if len(display_text) > w - 4:
+                display_text = display_text[:w - 7] + "..."
+
+            if i == selected_idx_on_page:
+                stdscr.attron(curses.color_pair(1))
+                stdscr.addstr(line_num + i, 2, f"> {display_text}")
+                stdscr.attroff(curses.color_pair(1))
+            else:
+                stdscr.addstr(line_num + i, 2, f"  {display_text}")
+
+        page_info = f"Page {current_page + 1}/{total_pages}"
+        stdscr.addstr(h - 3, 2, page_info)
+        stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View entries, B: Back, LEFT/RIGHT: Pages")
+        stdscr.refresh()
+
+        key = stdscr.getch()
+
+        if key == curses.KEY_UP:
+            selected_idx_on_page = max(0, selected_idx_on_page - 1)
+        elif key == curses.KEY_DOWN:
+            if tags_on_this_page_count > 0:
+                selected_idx_on_page = min(tags_on_this_page_count - 1, selected_idx_on_page + 1)
+        elif key == curses.KEY_LEFT:
+            if current_page > 0:
+                current_page -= 1
+                selected_idx_on_page = 0
+        elif key == curses.KEY_RIGHT:
+            if current_page < total_pages - 1:
+                current_page += 1
+                selected_idx_on_page = 0
+        elif key == ord('b') or key == ord('B'):
+            return None
+        elif key == ord('q') or key == ord('Q'):
+            if confirm_action(stdscr, "Quit application? (y/N):"):
+                return "QUIT_APP"
+        elif (key == curses.KEY_ENTER or key in [10, 13]) and paginated_tags:
+            if 0 <= selected_idx_on_page < len(paginated_tags):
+                selected_tag = paginated_tags[selected_idx_on_page][0]
+                entries = get_entries_by_tag(selected_tag)
+                if entries:
+                    result = tag_entries_loop(stdscr, entries, selected_tag)
+                    if result == "QUIT_APP":
+                        return "QUIT_APP"
+                else:
+                    display_message(stdscr, f"No entries found with tag '{selected_tag}'. Press any key.")
+        elif key == curses.KEY_RESIZE:
+            items_per_page = curses.LINES - 6
+            if items_per_page <= 0:
+                items_per_page = 1
+
+
+def tag_entries_loop(stdscr, entries, tag_name):
+    """Manages display and interaction with entries filtered by tag."""
+    current_page = 0
+    items_per_page = curses.LINES - 6
+    if items_per_page <= 0:
+        items_per_page = 1
+    selected_idx_on_page = 0
+
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+        stdscr.addstr(0, 0, f"Entries tagged '{tag_name}' ({len(entries)} found)", curses.A_BOLD)
+        stdscr.addstr(1, 0, "-" * (w - 1))
+
+        total_entries = len(entries)
+        total_pages = (total_entries + items_per_page - 1) // items_per_page
+        if total_pages == 0:
+            total_pages = 1
+        current_page = max(0, min(current_page, total_pages - 1))
+
+        start_index = current_page * items_per_page
+        end_index = start_index + items_per_page
+        paginated_entries = entries[start_index:end_index]
+
+        entries_on_this_page_count = len(paginated_entries)
+        selected_idx_on_page = max(0, min(selected_idx_on_page, entries_on_this_page_count - 1 if entries_on_this_page_count > 0 else 0))
+
+        line_num = 2
+        for i, entry in enumerate(paginated_entries):
+            display_text = f"{entry[1]} - {entry[2]}"
+            if len(display_text) > w - 4:
+                display_text = display_text[:w - 7] + "..."
+
+            if i == selected_idx_on_page:
+                stdscr.attron(curses.color_pair(1))
+                stdscr.addstr(line_num + i, 2, f"> {display_text}")
+                stdscr.attroff(curses.color_pair(1))
+            else:
+                stdscr.addstr(line_num + i, 2, f"  {display_text}")
+
+        page_info = f"Page {current_page + 1}/{total_pages}"
+        stdscr.addstr(h - 3, 2, page_info)
+        stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, B: Back, LEFT/RIGHT: Pages")
+        stdscr.refresh()
+
+        key = stdscr.getch()
+
+        if key == curses.KEY_UP:
+            selected_idx_on_page = max(0, selected_idx_on_page - 1)
+        elif key == curses.KEY_DOWN:
+            if entries_on_this_page_count > 0:
+                selected_idx_on_page = min(entries_on_this_page_count - 1, selected_idx_on_page + 1)
+        elif key == curses.KEY_LEFT:
+            if current_page > 0:
+                current_page -= 1
+                selected_idx_on_page = 0
+        elif key == curses.KEY_RIGHT:
+            if current_page < total_pages - 1:
+                current_page += 1
+                selected_idx_on_page = 0
+        elif key == ord('b') or key == ord('B'):
+            return None
+        elif key == ord('q') or key == ord('Q'):
+            if confirm_action(stdscr, "Quit application? (y/N):"):
+                return "QUIT_APP"
+        elif (key == curses.KEY_ENTER or key in [10, 13]) and paginated_entries:
+            if 0 <= selected_idx_on_page < len(paginated_entries):
+                entry_id_to_view = paginated_entries[selected_idx_on_page][0]
+                result = view_single_entry_screen(stdscr, entry_id_to_view)
+                if result == "QUIT_APP":
+                    return "QUIT_APP"
+        elif key == curses.KEY_RESIZE:
+            items_per_page = curses.LINES - 6
+            if items_per_page <= 0:
+                items_per_page = 1
+
+
 def confirm_action(stdscr, prompt):
     """Generic confirmation dialog."""
     stdscr.clear() # Clear screen for the prompt
@@ -1042,7 +1334,7 @@ def main_tui_loop(stdscr):
     curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # For list markers
 
     current_main_menu_option = 0
-    main_menu_options_count = 4 # "View Entries", "Add New Entry", "Search Entries", "Exit"
+    main_menu_options_count = 5 # "View Entries", "Add New Entry", "Search Entries", "Filter by Tag", "Exit"
 
     while True:
         display_main_menu(stdscr, current_main_menu_option)
@@ -1064,7 +1356,10 @@ def main_tui_loop(stdscr):
             elif current_main_menu_option == 2: # Search Entries
                 result = search_entries_screen(stdscr)
                 if result == "QUIT_APP": break
-            elif current_main_menu_option == 3: # Exit
+            elif current_main_menu_option == 3: # Filter by Tag
+                result = filter_by_tag_screen(stdscr)
+                if result == "QUIT_APP": break
+            elif current_main_menu_option == 4: # Exit
                 if confirm_action(stdscr, "Are you sure you want to exit? (y/N):"):
                     break
         elif key == curses.KEY_RESIZE:
