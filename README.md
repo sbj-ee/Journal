@@ -14,6 +14,7 @@ A TUI for a Journal application which uses a sqlite3 database.
 - Scrollable entry view with word wrapping
 - Markdown rendering when viewing entries
 - Word-wrapped text editor
+- Dark/light mode toggle with saved preference
 - Configurable database location with cloud sync support
 
 ## Markdown Support
@@ -72,6 +73,7 @@ The exported file includes each entry's title, date, tags, and content in a read
 - **Select**: Enter
 - **Quit**: Q
 - **Back**: B
+- **Toggle theme**: T (switch between dark/light mode)
 - **Edit entry**: E (when viewing an entry)
 - **Delete entry**: D (in entry list)
 - **New entry**: N (in entry list)
@@ -101,11 +103,16 @@ The database location is determined in the following order:
 2. **Box folder**: `~/Library/CloudStorage/Box-Box/journal_app.db` (if Box Drive is installed)
 3. **Current directory**: `./journal_app.db`
 
-To use a custom database path, create `~/.journalrc`:
+To customize settings, create `~/.journalrc`:
 
 ```
 DATABASE_PATH=~/path/to/journal.db
+THEME=dark
 ```
+
+Available settings:
+- **DATABASE_PATH**: Custom path to the SQLite database
+- **THEME**: `dark` (default) or `light` - automatically saved when toggling with T
 
 The current database location is displayed on the main menu.
 
