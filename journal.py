@@ -30,6 +30,41 @@ def get_database_path():
 
 DATABASE_NAME = get_database_path()
 
+# Theme mode: True = dark mode (light text on dark bg), False = light mode (dark text on light bg)
+dark_mode = True
+
+def init_colors():
+    """Initialize color pairs based on current theme mode."""
+    global dark_mode
+    curses.start_color()
+
+    if dark_mode:
+        # Dark mode: light text on dark background
+        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Selected items
+        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Borders
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK) # Headers
+        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Code
+        curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # List markers/tags
+    else:
+        # Light mode: dark text on light background
+        curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)  # Selected items
+        curses.init_pair(2, curses.COLOR_BLUE, curses.COLOR_WHITE)   # Borders
+        curses.init_pair(3, curses.COLOR_RED, curses.COLOR_WHITE)    # Headers
+        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_WHITE)  # Code
+        curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_WHITE) # List markers/tags
+
+def toggle_theme(stdscr):
+    """Toggle between dark and light mode."""
+    global dark_mode
+    dark_mode = not dark_mode
+    init_colors()
+    if curses.can_change_color():
+        # Some terminals support changing the background
+        pass
+    # Force screen refresh
+    stdscr.clear()
+    stdscr.refresh()
+
 # --- Database Functions ---
 
 def init_db():
@@ -690,7 +725,7 @@ def display_main_menu(stdscr, selected_option_idx):
         db_path = "..." + db_path[-(w - 11):]
     stdscr.addstr(h - 3, 2, f"DB: {db_path}", curses.A_DIM)
 
-    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: Select, Q: Quit, ?: Help")
+    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: Select, T: Theme, Q: Quit, ?: Help")
     stdscr.refresh()
 
 def display_entries_list(stdscr, entries, current_page, items_per_page, selected_idx_on_page):
@@ -1296,6 +1331,7 @@ def display_help_screen(stdscr):
             ("Enter", "Select/confirm"),
             ("B", "Go back"),
             ("Q", "Quit"),
+            ("T", "Toggle dark/light mode"),
             ("?", "Show this help"),
         ]),
         ("Main Menu", [
@@ -1405,6 +1441,8 @@ def journal_entries_loop(stdscr):
                 return "QUIT_APP" # Signal to exit the whole app
         elif key == ord('?'):
             display_help_screen(stdscr)
+        elif key == ord('t') or key == ord('T'):
+            toggle_theme(stdscr)
         elif (key == curses.KEY_ENTER or key in [10, 13]) and paginated_entries:
             # Make sure there's an entry to select
             if 0 <= selected_idx_on_page < len(paginated_entries):
@@ -1436,12 +1474,7 @@ def main_tui_loop(stdscr):
     stdscr.keypad(True) # Enable special keys like arrow keys
 
     # Initialize color pairs
-    curses.start_color()
-    curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE) # For selected items (black on white)
-    curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK) # For borders or other elements
-    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK) # For headers
-    curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK) # For code/inline code
-    curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # For list markers
+    init_colors()
 
     current_main_menu_option = 0
     main_menu_options_count = 5 # "View Entries", "Add New Entry", "Search Entries", "Filter by Tag", "Exit"
@@ -1459,6 +1492,8 @@ def main_tui_loop(stdscr):
                 break
         elif key == ord('?'):
             display_help_screen(stdscr)
+        elif key == ord('t') or key == ord('T'):
+            toggle_theme(stdscr)
         elif key == curses.KEY_ENTER or key in [10, 13]: # 10 is LF, 13 is CR
             if current_main_menu_option == 0: # View Entries
                 result = journal_entries_loop(stdscr)
