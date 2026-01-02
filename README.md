@@ -8,7 +8,7 @@ A TUI for a Journal application which uses a sqlite3 database.
 - Quick add entries from command line
 - Export entries to markdown for backup
 - Tag entries for organization and filtering
-- Search entries by title or content
+- Search entries by title, content, or tag
 - Filter entries by tag
 - Paginated entry list
 - Scrollable entry view with word wrapping
@@ -77,6 +77,7 @@ The exported file includes each entry's title, date, tags, and content in a read
 - **Edit entry**: E (when viewing an entry)
 - **Delete entry**: D (in entry list)
 - **New entry**: N (in entry list)
+- **Search**: / (in entry list)
 - **Text editor**: Escape to save, Ctrl+C to cancel
 
 ## Tags

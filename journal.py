@@ -191,16 +191,18 @@ def update_entry_db(entry_id, title, content):
         conn.close()
 
 def search_entries_db(search_term):
-    """Searches journal entries by title or content."""
+    """Searches journal entries by title, content, or tag."""
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
     search_pattern = f"%{search_term}%"
     cursor.execute("""
-        SELECT id, strftime('%Y-%m-%d %H:%M', timestamp) AS formatted_time, title
-        FROM entries
-        WHERE title LIKE ? OR content LIKE ?
-        ORDER BY timestamp DESC
-    """, (search_pattern, search_pattern))
+        SELECT DISTINCT e.id, strftime('%Y-%m-%d %H:%M', e.timestamp) AS formatted_time, e.title
+        FROM entries e
+        LEFT JOIN entry_tags et ON e.id = et.entry_id
+        LEFT JOIN tags t ON et.tag_id = t.id
+        WHERE e.title LIKE ? OR e.content LIKE ? OR t.name LIKE ?
+        ORDER BY e.timestamp DESC
+    """, (search_pattern, search_pattern, search_pattern))
     entries = cursor.fetchall()
     conn.close()
     return entries
@@ -813,7 +815,7 @@ def display_entries_list(stdscr, entries, current_page, items_per_page, selected
     if total_pages == 0: total_pages = 1
     page_info = f"Page {current_page + 1}/{total_pages}"
     stdscr.addstr(h - 3, 2, page_info)
-    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, D: Delete, LEFT/RIGHT: Pages")
+    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, D: Delete, /: Search, LEFT/RIGHT: Pages")
     stdscr.refresh()
     return paginated_entries
 
@@ -1085,7 +1087,8 @@ def search_entries_screen(stdscr):
     curses.curs_set(1)
 
     stdscr.addstr(1, 2, "Search Entries", curses.A_BOLD)
-    search_term = get_text_input(stdscr, "Search: ", 3, 2, max_len=w-10)
+    stdscr.addstr(3, 2, "Search by title, content, or tag", curses.A_DIM)
+    search_term = get_text_input(stdscr, "Search: ", 5, 2, max_len=w-10)
 
     curses.curs_set(0)
 
@@ -1374,6 +1377,7 @@ def display_help_screen(stdscr):
         ("Entry List", [
             ("N", "New entry"),
             ("D", "Delete selected entry"),
+            ("/", "Search entries"),
         ]),
         ("View Entry", [
             ("E", "Edit entry"),
@@ -1477,6 +1481,10 @@ def journal_entries_loop(stdscr):
             display_help_screen(stdscr)
         elif key == ord('t') or key == ord('T'):
             toggle_theme(stdscr)
+        elif key == ord('/'):
+            result = search_entries_screen(stdscr)
+            if result == "QUIT_APP":
+                return "QUIT_APP"
         elif (key == curses.KEY_ENTER or key in [10, 13]) and paginated_entries:
             # Make sure there's an entry to select
             if 0 <= selected_idx_on_page < len(paginated_entries):
