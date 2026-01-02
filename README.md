@@ -73,6 +73,7 @@ The exported file includes each entry's title, date, tags, and content in a read
 - **Select**: Enter
 - **Quit**: Q
 - **Back**: B
+- **Main menu**: M (return to main menu from any screen)
 - **Toggle theme**: T (switch between dark/light mode)
 - **Edit entry**: E (when viewing an entry)
 - **Delete entry**: D (in entry list)

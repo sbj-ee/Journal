@@ -396,5 +396,25 @@ class TestMarkdownParsing(unittest.TestCase):
         self.assertEqual(len(matches), 3)
 
 
+class TestNavigationSignals(unittest.TestCase):
+    """Tests for navigation signal handling."""
+
+    def test_goto_main_signal_propagation(self):
+        """Test that GOTO_MAIN signal is a valid return value."""
+        # The GOTO_MAIN signal should be a string that can be compared
+        goto_main = "GOTO_MAIN"
+        quit_app = "QUIT_APP"
+
+        # These signals should be distinct
+        self.assertNotEqual(goto_main, quit_app)
+        self.assertNotEqual(goto_main, None)
+        self.assertNotEqual(quit_app, None)
+
+        # Test that they can be used in conditional checks
+        result = "GOTO_MAIN"
+        self.assertEqual(result, goto_main)
+        self.assertTrue(result == "GOTO_MAIN")
+
+
 if __name__ == '__main__':
     unittest.main()

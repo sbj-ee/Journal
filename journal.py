@@ -815,7 +815,7 @@ def display_entries_list(stdscr, entries, current_page, items_per_page, selected
     if total_pages == 0: total_pages = 1
     page_info = f"Page {current_page + 1}/{total_pages}"
     stdscr.addstr(h - 3, 2, page_info)
-    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, D: Delete, /: Search, LEFT/RIGHT: Pages")
+    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, D: Delete, /: Search, M: Main Menu")
     stdscr.refresh()
     return paginated_entries
 
@@ -900,7 +900,7 @@ def view_single_entry_screen(stdscr, entry_id):
             else:
                 break # No more content lines
 
-        stdscr.addstr(h - 1, 0, "B: Back, E: Edit, UP/DOWN: Scroll, Q: Quit")
+        stdscr.addstr(h - 1, 0, "B: Back, E: Edit, M: Main Menu, UP/DOWN: Scroll, Q: Quit")
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -939,6 +939,8 @@ def view_single_entry_screen(stdscr, entry_id):
             stdscr.addstr(1, 0, timestamp_line)
             stdscr.addstr(2, 0, tags_line, curses.color_pair(5))
             stdscr.addstr(3, 0, "-" * (w - 1))
+        elif key == ord('m') or key == ord('M'):
+            return "GOTO_MAIN"  # Return to main menu immediately
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit to main menu? (y/N):"):
                 return "QUIT_APP" # Special signal
@@ -1140,6 +1142,8 @@ def search_results_loop(stdscr, results, search_term):
                 selected_idx_on_page = 0
         elif key == ord('b') or key == ord('B'):
             return None
+        elif key == ord('m') or key == ord('M'):
+            return "GOTO_MAIN"  # Return to main menu immediately
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit application? (y/N):"):
                 return "QUIT_APP"
@@ -1149,6 +1153,8 @@ def search_results_loop(stdscr, results, search_term):
                 result = view_single_entry_screen(stdscr, entry_id_to_view)
                 if result == "QUIT_APP":
                     return "QUIT_APP"
+                elif result == "GOTO_MAIN":
+                    return "GOTO_MAIN"
         elif key == curses.KEY_RESIZE:
             items_per_page = curses.LINES - 6
             if items_per_page <= 0:
@@ -1184,7 +1190,7 @@ def display_search_results(stdscr, entries, search_term, current_page, items_per
         total_pages = 1
     page_info = f"Page {current_page + 1}/{total_pages}"
     stdscr.addstr(h - 3, 2, page_info)
-    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, B: Back, LEFT/RIGHT: Pages")
+    stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, B: Back, M: Main Menu, LEFT/RIGHT: Pages")
     stdscr.refresh()
     return paginated_entries
 
@@ -1237,7 +1243,7 @@ def filter_by_tag_screen(stdscr):
 
         page_info = f"Page {current_page + 1}/{total_pages}"
         stdscr.addstr(h - 3, 2, page_info)
-        stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View entries, B: Back, LEFT/RIGHT: Pages")
+        stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, B: Back, M: Main Menu, LEFT/RIGHT: Pages")
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -1257,6 +1263,8 @@ def filter_by_tag_screen(stdscr):
                 selected_idx_on_page = 0
         elif key == ord('b') or key == ord('B'):
             return None
+        elif key == ord('m') or key == ord('M'):
+            return "GOTO_MAIN"  # Return to main menu immediately
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit application? (y/N):"):
                 return "QUIT_APP"
@@ -1268,6 +1276,8 @@ def filter_by_tag_screen(stdscr):
                     result = tag_entries_loop(stdscr, entries, selected_tag)
                     if result == "QUIT_APP":
                         return "QUIT_APP"
+                    elif result == "GOTO_MAIN":
+                        return "GOTO_MAIN"
                 else:
                     display_message(stdscr, f"No entries found with tag '{selected_tag}'. Press any key.")
         elif key == curses.KEY_RESIZE:
@@ -1318,7 +1328,7 @@ def tag_entries_loop(stdscr, entries, tag_name):
 
         page_info = f"Page {current_page + 1}/{total_pages}"
         stdscr.addstr(h - 3, 2, page_info)
-        stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, B: Back, LEFT/RIGHT: Pages")
+        stdscr.addstr(h - 2, 2, "UP/DOWN: Navigate, ENTER: View, B: Back, M: Main Menu, LEFT/RIGHT: Pages")
         stdscr.refresh()
 
         key = stdscr.getch()
@@ -1338,6 +1348,8 @@ def tag_entries_loop(stdscr, entries, tag_name):
                 selected_idx_on_page = 0
         elif key == ord('b') or key == ord('B'):
             return None
+        elif key == ord('m') or key == ord('M'):
+            return "GOTO_MAIN"  # Return to main menu immediately
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit application? (y/N):"):
                 return "QUIT_APP"
@@ -1347,6 +1359,8 @@ def tag_entries_loop(stdscr, entries, tag_name):
                 result = view_single_entry_screen(stdscr, entry_id_to_view)
                 if result == "QUIT_APP":
                     return "QUIT_APP"
+                elif result == "GOTO_MAIN":
+                    return "GOTO_MAIN"
         elif key == curses.KEY_RESIZE:
             items_per_page = curses.LINES - 6
             if items_per_page <= 0:
@@ -1367,6 +1381,7 @@ def display_help_screen(stdscr):
             ("←/→", "Previous/next page"),
             ("Enter", "Select/confirm"),
             ("B", "Go back"),
+            ("M", "Go to main menu"),
             ("Q", "Quit"),
             ("T", "Toggle dark/light mode"),
             ("?", "Show this help"),
@@ -1474,6 +1489,8 @@ def journal_entries_loop(stdscr):
             # Data will be refreshed at the start of the loop
         elif key == ord('b') or key == ord('B'):
             return # Go back to main menu
+        elif key == ord('m') or key == ord('M'):
+            return "GOTO_MAIN"  # Return to main menu immediately
         elif key == ord('q') or key == ord('Q'):
             if confirm_action(stdscr, "Quit application? (y/N):"):
                 return "QUIT_APP" # Signal to exit the whole app
@@ -1540,14 +1557,17 @@ def main_tui_loop(stdscr):
             if current_main_menu_option == 0: # View Entries
                 result = journal_entries_loop(stdscr)
                 if result == "QUIT_APP": break
+                # GOTO_MAIN just returns to this loop naturally
             elif current_main_menu_option == 1: # Add New Entry
                 add_new_entry_screen(stdscr)
             elif current_main_menu_option == 2: # Search Entries
                 result = search_entries_screen(stdscr)
                 if result == "QUIT_APP": break
+                # GOTO_MAIN just returns to this loop naturally
             elif current_main_menu_option == 3: # Filter by Tag
                 result = filter_by_tag_screen(stdscr)
                 if result == "QUIT_APP": break
+                # GOTO_MAIN just returns to this loop naturally
             elif current_main_menu_option == 4: # Exit
                 if confirm_action(stdscr, "Are you sure you want to exit? (y/N):"):
                     break
