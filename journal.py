@@ -6,19 +6,49 @@ import os
 import argparse
 from datetime import datetime
 
-# Configuration: check for config file, then Box folder, then current directory
-def get_database_path():
-    """Determine database path from config file, Box folder, or current directory."""
-    config_file = os.path.expanduser('~/.journalrc')
+# Configuration file path
+CONFIG_FILE = os.path.expanduser('~/.journalrc')
 
-    # Check config file for DATABASE_PATH
-    if os.path.isfile(config_file):
-        with open(config_file, 'r') as f:
+def get_config_value(key, default=None):
+    """Read a value from the config file."""
+    if os.path.isfile(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f:
             for line in f:
                 line = line.strip()
-                if line.startswith('DATABASE_PATH='):
-                    path = line.split('=', 1)[1].strip().strip('"').strip("'")
-                    return os.path.expanduser(path)
+                if line.startswith(f'{key}='):
+                    value = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    return value
+    return default
+
+def set_config_value(key, value):
+    """Set a value in the config file, preserving other settings."""
+    lines = []
+    key_found = False
+
+    # Read existing config
+    if os.path.isfile(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f:
+            for line in f:
+                if line.strip().startswith(f'{key}='):
+                    lines.append(f'{key}={value}\n')
+                    key_found = True
+                else:
+                    lines.append(line if line.endswith('\n') else line + '\n')
+
+    # Add key if not found
+    if not key_found:
+        lines.append(f'{key}={value}\n')
+
+    # Write config
+    with open(CONFIG_FILE, 'w') as f:
+        f.writelines(lines)
+
+def get_database_path():
+    """Determine database path from config file, Box folder, or current directory."""
+    # Check config file for DATABASE_PATH
+    path = get_config_value('DATABASE_PATH')
+    if path:
+        return os.path.expanduser(path)
 
     # Fall back to Box folder if available
     box_folder = os.path.expanduser('~/Library/CloudStorage/Box-Box')
@@ -28,10 +58,15 @@ def get_database_path():
     # Fall back to current directory
     return 'journal_app.db'
 
+def load_theme_preference():
+    """Load theme preference from config file."""
+    theme = get_config_value('THEME', 'dark')
+    return theme.lower() == 'dark'
+
 DATABASE_NAME = get_database_path()
 
 # Theme mode: True = dark mode (light text on dark bg), False = light mode (dark text on light bg)
-dark_mode = True
+dark_mode = load_theme_preference()
 
 def init_colors():
     """Initialize color pairs based on current theme mode."""
@@ -54,13 +89,12 @@ def init_colors():
         curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_WHITE) # List markers/tags
 
 def toggle_theme(stdscr):
-    """Toggle between dark and light mode."""
+    """Toggle between dark and light mode and save preference."""
     global dark_mode
     dark_mode = not dark_mode
     init_colors()
-    if curses.can_change_color():
-        # Some terminals support changing the background
-        pass
+    # Save preference to config file
+    set_config_value('THEME', 'dark' if dark_mode else 'light')
     # Force screen refresh
     stdscr.clear()
     stdscr.refresh()
