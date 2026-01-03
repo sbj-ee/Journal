@@ -74,12 +74,13 @@ def init_colors():
     curses.start_color()
 
     if dark_mode:
-        # Dark mode: light text on dark background
-        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Selected items
-        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)   # Borders
-        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK) # Headers
-        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Code
-        curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK) # List markers/tags
+        # Dark mode: white text on blue background
+        curses.init_pair(1, curses.COLOR_BLUE, curses.COLOR_WHITE)   # Selected items
+        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLUE)    # Borders
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLUE)  # Headers
+        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLUE)   # Code
+        curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLUE) # List markers/tags
+        curses.init_pair(6, curses.COLOR_WHITE, curses.COLOR_BLUE)   # Default background
     else:
         # Light mode: dark text on light background
         curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)  # Selected items
@@ -87,12 +88,15 @@ def init_colors():
         curses.init_pair(3, curses.COLOR_RED, curses.COLOR_WHITE)    # Headers
         curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_WHITE)  # Code
         curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_WHITE) # List markers/tags
+        curses.init_pair(6, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Default background
 
 def toggle_theme(stdscr):
     """Toggle between dark and light mode and save preference."""
     global dark_mode
     dark_mode = not dark_mode
     init_colors()
+    # Apply background color
+    stdscr.bkgd(' ', curses.color_pair(6))
     # Save preference to config file
     set_config_value('THEME', 'dark' if dark_mode else 'light')
     # Force screen refresh
@@ -1534,6 +1538,8 @@ def main_tui_loop(stdscr):
 
     # Initialize color pairs
     init_colors()
+    # Apply background color
+    stdscr.bkgd(' ', curses.color_pair(6))
 
     current_main_menu_option = 0
     main_menu_options_count = 5 # "View Entries", "Add New Entry", "Search Entries", "Filter by Tag", "Exit"
