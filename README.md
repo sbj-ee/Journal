@@ -118,6 +118,12 @@ Available settings:
 
 The current database location is displayed on the main menu.
 
+## Requirements
+
+- Python 3.8+
+- No external dependencies (uses only Python standard library)
+- On Windows: `pip install windows-curses`
+
 ## Running Tests
 
 ```bash
